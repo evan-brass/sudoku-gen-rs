@@ -1,8 +1,10 @@
+use rand::prelude::*;
+
 struct Board {
 	pub inner: [[Option<u8>; 9]; 9]
 }
 struct PossibleSet {
-	inner: u16
+	pub inner: u16
 }
 impl PossibleSet {
 	pub fn size(&self) -> usize {
@@ -17,6 +19,9 @@ impl PossibleSet {
 	}
 	pub fn remove(&mut self, other: Self) {
 		self.inner &= !other.inner;
+	}
+	pub fn contains(&mut self, other: Self) -> bool {
+		self.inner & other.inner != 0
 	}
 	pub fn all() -> Self {
 		Self {
@@ -71,54 +76,72 @@ impl From<PossibleSet> for u8 {
 		}
 	}
 }
+#[derive(Debug)]
+enum NeighborKind {
+	Row,
+	Column,
+	Square,
+	SquareAndRow,
+	SquareAndColumn
+}
 impl Board {
-	// const TEST1: Board = Board {
-	// 	inner: [
-	// 		[None   , Some(1), None   ,  Some(4), Some(9), None   ,  Some(7), None   , None   ],
-	// 		[None   , None   , None   ,  None   , Some(7), None   ,  Some(8), None   , Some(6)],
-	// 		[Some(2), Some(3), None   ,  None   , None   , None   ,  None   , None   , None   ],
+	#[allow(dead_code)]
+	const TEST1: Board = Board {
+		inner: [
+			[None   , Some(1), None   ,  Some(4), Some(9), None   ,  Some(7), None   , None   ],
+			[None   , None   , None   ,  None   , Some(7), None   ,  Some(8), None   , Some(6)],
+			[Some(2), Some(3), None   ,  None   , None   , None   ,  None   , None   , None   ],
 
-	// 		[None   , None   , None   ,  None   , None   , None   ,  None   , None   , Some(5)],
-	// 		[Some(6), Some(9), None   ,  None   , Some(5), None   ,  None   , Some(1), Some(7)],
-	// 		[Some(7), None   , None   ,  None   , None   , None   ,  None   , None   , None   ],
-			
-	// 		[None   , None   , None   ,  None   , None   , None   ,  None   , Some(9), Some(8)],
-	// 		[Some(4), None   , Some(5),  None   , Some(2), None   ,  None   , None   , None   ],
-	// 		[None   , None   , Some(1),  None   , Some(8), Some(4),  None   , Some(7), None   ]
-	// 	]
-	// };
+			[None   , None   , None   ,  None   , None   , None   ,  None   , None   , Some(5)],
+			[Some(6), Some(9), None   ,  None   , Some(5), None   ,  None   , Some(1), Some(7)],
+			[Some(7), None   , None   ,  None   , None   , None   ,  None   , None   , None   ],
 
-	fn neighbors(row: usize, column: usize) -> Vec<(usize, usize)> { // Vec length will always be twenty
-		let mut list = Vec::new();
-
-		// Add Square:
+			[None   , None   , None   ,  None   , None   , None   ,  None   , Some(9), Some(8)],
+			[Some(4), None   , Some(5),  None   , Some(2), None   ,  None   , None   , None   ],
+			[None   , None   , Some(1),  None   , Some(8), Some(4),  None   , Some(7), None   ]
+		]
+	};
+	// TODO: Technically the box is unneccessary but the type is a monster...
+	pub fn neighbors(row: usize, column: usize) -> Box<dyn Iterator<Item=(usize, usize, NeighborKind)>> {
 		let rb = row - row % 3;
 		let cb = column - column % 3;
-		for ri in rb..(rb + 3) {
-			for ci in cb..(cb + 3) {
-				if ri != row || ci != column {
-					list.push((ri, ci));
-				}
-			}
-		}
 
-		// Add Row:
-		match row {
-			0 | 1 | 2 => list.extend_from_slice(&[(3, column), (4, column), (5, column), (6, column), (7, column), (8, column)]),
-			3 | 4 | 5 => list.extend_from_slice(&[(0, column), (1, column), (2, column), (6, column), (7, column), (8, column)]),
-			6 | 7 | 8 => list.extend_from_slice(&[(0, column), (1, column), (2, column), (3, column), (4, column), (5, column)]),
+		// Square
+		let it_square = (rb..(rb + 3)).flat_map(move |ri| {
+			(cb..(cb + 3)).map(move |ci| {
+				(
+					ri,
+					ci,
+					if ri == row {
+						NeighborKind::SquareAndRow
+					} else if ci == column {
+						NeighborKind::SquareAndColumn
+					} else {
+						NeighborKind::Square
+					}
+				)
+			})
+		}).filter(move |(ri, ci, _)| !(*ri == row && *ci == column));
+
+		// Row
+		let (ca, cb) = match column {
+			0 | 1 | 2 => (3, 6),
+			3 | 4 | 5 => (0, 6),
+			6 | 7 | 8 => (0, 3),
 			_ => unreachable!()
-		}
+		};
+		let it_column = (ca..(ca + 3)).map(move |ci| (row, ci, NeighborKind::Row)).chain((cb..(cb + 3)).map(move |ci| (row, ci, NeighborKind::Row)));
 
-		// Add Column:
-		match column {
-			0 | 1 | 2 => list.extend_from_slice(&[(row, 3), (row, 4), (row, 5), (row, 6), (row, 7), (row, 8)]),
-			3 | 4 | 5 => list.extend_from_slice(&[(row, 0), (row, 1), (row, 2), (row, 6), (row, 7), (row, 8)]),
-			6 | 7 | 8 => list.extend_from_slice(&[(row, 0), (row, 1), (row, 2), (row, 3), (row, 4), (row, 5)]),
+		// Column
+		let (ra, rb) = match row {
+			0 | 1 | 2 => (3, 6),
+			3 | 4 | 5 => (0, 6),
+			6 | 7 | 8 => (0, 3),
 			_ => unreachable!()
-		}
+		};
+		let it_row = (ra..(ra + 3)).map(move |ri| (ri, column, NeighborKind::Column)).chain((rb..(rb + 3)).map(move |ri| (ri, column, NeighborKind::Column)));
 
-		list
+		Box::new(it_square.chain(it_row).chain(it_column))
 	}
 
 	// TODO: Add seed
@@ -127,29 +150,66 @@ impl Board {
 		let mut board = Board {
 			inner: [[None; 9]; 9]
 		};
+
+		// TODO: Make new function (fill) instead.
 		if !board.solve() {
 			unreachable!()
-		} // TODO: Make new function - fill instead.
-		board.print();
+		}
 
 		// Remove cells untill we no longer can:
 		loop {
 			let mut made_harder = false;
 
-			for ri in 0..9 {
-				for ci in 0..9 {
-					if let Some(num) = board.inner[ri][ci] {
-						// Check if we can remove this cell because it's neighbors have all the other numbers:
-						let mut possibles = PossibleSet::all();
-						for (rii, cii) in Self::neighbors(ri, ci) {
-							if let Some(num) = board.inner[rii][cii] {
-								possibles.remove(num.into());
+			let mut order: Vec<(usize, usize)> = (0..9).flat_map(|ri| (0..9).map(move |ci| (ri, ci))).collect();
+			order.shuffle(&mut thread_rng());
+
+			for (ri, ci) in order {
+				// board.print();
+				if let Some(num) = board.inner[ri][ci] {
+					// Check if we can remove this cell because its neighbors have all the other numbers:
+					let mut possibles = PossibleSet::all();
+					let mut square_only = true;
+					let mut row_only = true;
+					let mut column_only = true;
+					for (rii, cii, neighbor_kind) in Self::neighbors(ri, ci) {
+						use NeighborKind::{Column, Row, Square, SquareAndColumn, SquareAndRow};
+						if let Some(num) = board.inner[rii][cii] {
+							possibles.remove(num.into());
+						} else {
+							
+							// Get the possibles for this neighbor - excluding whatever cell we're currently checking:
+							let mut sub_possibles = PossibleSet::all();
+							for (riii, ciii, _) in Self::neighbors(rii, cii) {
+								if !(riii == ri && ciii == ci) {
+									if let Some(sub_num) = board.inner[riii][ciii] {
+										sub_possibles.remove(sub_num.into());
+									}
+								}
+							}
+							// println!("Checking only's for ({}, {}) at ({}, {}): {:b}", ri, ci, rii, cii, sub_possibles.inner);
+							if sub_possibles.contains(num.into()) {
+								match neighbor_kind {
+									Square => square_only = false,
+									SquareAndRow => {
+										square_only = false;
+										row_only = false;
+									},
+									SquareAndColumn => {
+										square_only = false;
+										column_only = false;
+									},
+									Row => row_only = false,
+									Column => column_only = false
+								}
 							}
 						}
-						if possibles.size() == 1 {
-							board.inner[ri][ci] = None;
-							made_harder = true;
-						}
+					}
+					if possibles.size() == 1 || square_only || row_only || column_only {
+						board.inner[ri][ci] = None;
+						made_harder = true;
+						// println!("Removed ({}, {}) - p {:b}, s {} r {} c {}", ri, ci, possibles.inner, square_only, row_only, column_only);
+					} else {
+						// println!("Couldn't remove ({}, {}) - p {:b}", ri, ci, possibles.inner);
 					}
 				}
 			}
@@ -168,9 +228,10 @@ impl Board {
 		}
 
 		// Check Neighbors:
-		for (ri, ci) in Self::neighbors(row, column) {
+		for (ri, ci, _) in Self::neighbors(row, column) {
 			let item = self.inner[ri][ci];
 			if item == test {
+				// println!("Failed verify for ({}, {}) because of ({}, {})", row, column, ri, ci);
 				return false;
 			}
 		}
@@ -180,6 +241,7 @@ impl Board {
 		self.solve_sub(0, 0)
 	}
 	fn solve_sub(&mut self, row: usize, column: usize) -> bool {
+		// println!("Solving for ({}, {})", row, column);
 		fn next_indexes(row: usize, column: usize) -> Option<(usize, usize)> {
 			if column == 8 {
 				if row == 8 {
@@ -194,8 +256,11 @@ impl Board {
 		if let None = self.inner[row][column] {
 			// TODO: Shuffle parts
 			let mut parts: [u8; 9] = [1,2,3,4,5,6,7,8,9];
+			parts.shuffle(&mut thread_rng());
+
 			for test in &parts {
 				self.inner[row][column] = Some(*test);
+				// self.print();
 				if self.verify(row, column) {
 					if let Some((r, c)) = next_indexes(row, column) {
 						if self.solve_sub(r, c) {
@@ -220,7 +285,7 @@ impl Board {
 	}
 
 	pub fn print(&self) {
-		// 
+		//
 		print!("╔═══╤═══╤═══╦═══╤═══╤═══╦═══╤═══╤═══╗\n");
 		for (ri, row) in self.inner.iter().enumerate() {
 			print!("║");
@@ -248,13 +313,34 @@ impl Board {
 }
 
 fn main() {
+	// for neighbor in Board::neighbors(0, 5) {
+	// 	println!("{:?}", neighbor);
+	// }
+
+	// let mut board = Board::TEST1;
+	// board.print();
+	// let tests: [(usize, usize); 3] = [(0, 0), (0, 1), (4, 4)];
+	// for (row, col) in &tests {
+	// 	println!("Verify ({}, {}): {}", row, col, board.verify(*row, *col));
+	// }
+	// println!("Solved? {}", board.solve());
+	// board.print();
+
+	// let mut possibles = PossibleSet::all();
+	// println!("{:b}", possibles.inner);
+	// possibles.remove(7.into());
+	// possibles.remove(7.into());
+	// possibles.remove(7.into());
+	// possibles.remove(7.into());
+	// possibles.remove(3.into());
+	// println!("{:b}", possibles.inner);
+	// for n in 1..=9 {
+	// 	println!("Has {}? {}", n, possibles.contains(n.into()));
+	// }
+
 	let mut board = Board::generate();
 	board.print();
 
 	println!("Solved? {}", board.solve());
 	board.print();
-	
-	// for (r, c, cell) in board.board.iter().enumerate().flat_map(|(r, row)| row.iter().enumerate().map(move |(c, cell)| (r, c, cell))) {
-	// 	println!("Row: {} Column: {} Cell: {:?}", r, c, cell);
-	// }
 }
